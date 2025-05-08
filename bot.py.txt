@@ -1,0 +1,65 @@
+import os
+import requests
+import time
+import telebot
+
+TOKEN = os.getenv("TOKEN")
+bot = telebot.TeleBot(TOKEN)
+chat_id = None
+
+def fetch_prices():
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=1m&range=1d"
+    r = requests.get(url)
+    data = r.json()
+    prices = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+    return [p for p in prices if p]
+
+def calculate_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return None
+    gains, losses = [], []
+    for i in range(1, period + 1):
+        change = prices[-i] - prices[-i - 1]
+        if change > 0:
+            gains.append(change)
+        else:
+            losses.append(abs(change))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period if losses else 0.0001
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+def analyze():
+    prices = fetch_prices()
+    if not prices:
+        return
+    rsi = calculate_rsi(prices)
+    last_price = prices[-1]
+    msg = f"💰 قیمت فعلی: {last_price:.2f} دلار\\n📊 RSI: {rsi:.2f}"
+
+    if rsi < 30:
+        msg += "\\n✅ سیگنال خرید"
+    elif rsi > 70:
+        msg += "\\n❌ سیگنال فروش"
+    else:
+        return
+
+    if chat_id:
+        bot.send_message(chat_id, msg)
+
+@bot.message_handler(commands=["start"])
+def send_welcome(message):
+    global chat_id
+    chat_id = message.chat.id
+    bot.reply_to(message, "🤖 ربات تحلیل‌گر طلا فعال شد. منتظر سیگنال باش!")
+
+def run_bot():
+    bot.polling(none_stop=True)
+
+import threading
+t = threading.Thread(target=run_bot)
+t.start()
+
+while True:
+    analyze()
+    time.sleep(300)  # هر 5 دقیقه
